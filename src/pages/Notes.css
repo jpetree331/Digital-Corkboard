@@ -1634,3 +1634,29 @@
   .nt-ribbon .right { max-width: 100%; min-width: 0; overflow-x: auto; }
   .nt-ribbon .right > * { flex-shrink: 0; }
 }
+
+/* Workspace settings overlay (gear button) */
+.nt-settings-panel { width: min(100%, 440px); }
+.nt-settings-form h4 {
+  margin: 4px 0 6px;
+  font-family: var(--notes-font-display); font-weight: 400;
+  font-size: 20px; color: var(--ink);
+}
+.nt-settings-hint { margin: 0 0 14px; font-size: 12.5px; line-height: 1.5; color: var(--ink-soft); }
+.nt-settings-form label { display: block; margin-top: 12px; font-size: 12.5px; color: var(--ink-soft); }
+.nt-settings-form label em { font-style: normal; color: var(--ink-faint); }
+.nt-settings-form input {
+  display: block; width: 100%; box-sizing: border-box; margin-top: 5px; padding: 9px 10px;
+  background: var(--page); color: var(--ink);
+  border: 1px solid var(--line-strong); border-radius: 3px; font-size: 14px;
+}
+.nt-settings-form input:focus { outline: none; border-color: var(--ink-soft); }
+.nt-settings-actions { margin-top: 18px; }
+.nt-settings-submit {
+  width: 100%; padding: 10px; background: var(--accent); color: white;
+  border: 0; border-radius: 3px; font-size: 14px; cursor: pointer;
+}
+.nt-settings-submit:disabled { opacity: .6; cursor: wait; }
+.nt-settings-msg { margin: 12px 0 0; font-size: 12.5px; }
+.nt-settings-msg.error { color: var(--red); }
+.nt-settings-msg.ok { color: var(--ink-soft); }

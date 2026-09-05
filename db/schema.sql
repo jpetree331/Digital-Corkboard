@@ -54,5 +54,9 @@ create table if not exists corkboard_file_chunks (
 create table if not exists corkboard_login_attempts (
  key text primary key, attempts integer not null, expires_at timestamptz not null
 );
+create table if not exists corkboard_settings (
+ id integer primary key check(id = 1), password_hash text not null,
+ updated_at timestamptz not null default now()
+);
 END;
 $corkboard$;

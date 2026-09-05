@@ -111,7 +111,7 @@ import { buildBoardTree, wouldCreateCycle, type BoardNode } from '../lib/notesBo
 import { marqueeHits, normalizeRect, type Rect } from '../lib/notesMarquee';
 import { useFavicon } from '../hooks/useFavicon';
 import './Notes.css';
-import { requestsPending } from '../lib/dataClient';
+import { request, requestsPending } from '../lib/dataClient';
 
 const TOOLBAR_TYPES: Array<{
   type: CardType;
@@ -230,6 +230,7 @@ export default function Notes({ onLock }: { onLock?: () => Promise<void> }) {
   const [docOverlayId, setDocOverlayId] = useState<string | null>(null);
   const [lightboxId, setLightboxId] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   // Card to flash-highlight after a search jump.
   const [flashId, setFlashId] = useState<string | null>(null);
@@ -2414,6 +2415,8 @@ export default function Notes({ onLock }: { onLock?: () => Promise<void> }) {
           (document.activeElement as HTMLElement | null)?.blur();
         } else if (helpOpen) {
           setHelpOpen(false);
+        } else if (settingsOpen) {
+          setSettingsOpen(false);
         } else if (searchOpen) {
           setSearchOpen(false);
         } else if (lightboxId) {
@@ -2609,7 +2612,7 @@ export default function Notes({ onLock }: { onLock?: () => Promise<void> }) {
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [selectedIds, cards, docOverlayId, ctxMenu, trashOpen, lightboxId, deleteCards, duplicateCards, clearSelection, doUndo, doRedo, flushNudge, selectedArrowId, arrows, arrowMenu, arrowLabelEditId, deleteArrowCmd, helpOpen, searchOpen, toggleInbox, toggleSidebar]);
+  }, [selectedIds, cards, docOverlayId, ctxMenu, trashOpen, lightboxId, deleteCards, duplicateCards, clearSelection, doUndo, doRedo, flushNudge, selectedArrowId, arrows, arrowMenu, arrowLabelEditId, deleteArrowCmd, helpOpen, settingsOpen, searchOpen, toggleInbox, toggleSidebar]);
 
   // ── Floating format toolbar ───────────────────────────────────────────
   // Show when the user makes a non-collapsed selection inside a Note body
@@ -3193,6 +3196,7 @@ export default function Notes({ onLock }: { onLock?: () => Promise<void> }) {
           </div>
           <button className="btn-quiet" onClick={() => setHelpOpen(true)} title="Keyboard shortcuts (?)">⌨</button>
           <button className="btn-quiet" onClick={openTrash} title="Trash">Trash</button>
+          {onLock && <button className="btn-quiet" onClick={() => setSettingsOpen(true)} title="Workspace settings" aria-label="Workspace settings">⚙</button>}
           {pendingSaves.current.size > 0 && <button className="btn-quiet" onClick={() => {
             for (const id of pendingSaves.current.keys()) scheduleCardSave(id, {}, { delay: 0, history: false });
           }}>Retry save</button>}
@@ -3671,6 +3675,7 @@ export default function Notes({ onLock }: { onLock?: () => Promise<void> }) {
       )}
 
       {helpOpen && <HelpOverlay onClose={() => setHelpOpen(false)} />}
+      {settingsOpen && <SettingsOverlay onClose={() => setSettingsOpen(false)} />}
 
       {searchOpen && (
         <SearchOverlay
@@ -4940,6 +4945,62 @@ function SearchOverlay({
 }
 
 // ── Keyboard-shortcut help overlay (rendered FROM the registry) ─────────
+
+/** Workspace settings: lets whoever holds the password choose a new one without touching the hosting account. */
+function SettingsOverlay({ onClose }: { onClose: () => void }) {
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [done, setDone] = useState(false);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (next.length < 16) { setError('Choose a new password of at least 16 characters.'); return; }
+    if (next !== confirm) { setError('The new passwords do not match.'); return; }
+    setBusy(true);
+    try {
+      await request('change-password', { current, next });
+      setDone(true); setCurrent(''); setNext(''); setConfirm('');
+    } catch (err) { setError((err as Error).message); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="nt-help-overlay" onClick={onClose}>
+      <div className="nt-help-panel nt-settings-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="nt-help-head">
+          <h3>Workspace settings</h3>
+          <button className="btn-quiet" onClick={onClose}>close</button>
+        </div>
+        <form className="nt-settings-form" onSubmit={submit}>
+          <h4>Change password</h4>
+          <p className="nt-settings-hint">
+            The new password replaces the one the workspace was set up with. Anyone else using this workspace
+            will need it the next time they unlock.
+          </p>
+          <label>
+            Current password
+            <input type="password" autoComplete="current-password" required value={current} onChange={(e) => setCurrent(e.target.value)} />
+          </label>
+          <label>
+            New password <em>(at least 16 characters)</em>
+            <input type="password" autoComplete="new-password" required minLength={16} value={next} onChange={(e) => setNext(e.target.value)} />
+          </label>
+          <label>
+            Repeat new password
+            <input type="password" autoComplete="new-password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+          </label>
+          <div className="nt-settings-actions">
+            <button type="submit" className="nt-settings-submit" disabled={busy}>{busy ? 'Saving…' : 'Change password'}</button>
+          </div>
+          {error && <p className="nt-settings-msg error" role="alert">{error}</p>}
+          {done && !error && <p className="nt-settings-msg ok" role="status">Password changed. You stay unlocked on this device.</p>}
+        </form>
+      </div>
+    </div>
+  );
+}
 
 function HelpOverlay({ onClose }: { onClose: () => void }) {
   const isMac = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform);

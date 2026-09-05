@@ -4,7 +4,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createHandler } from '../server/handler';
 import { compileQuery } from '../server/queries';
-import { authenticated, sessionToken } from '../server/auth';
+import { authenticated, environmentAuth, hashPassword, loadAuth, sessionToken } from '../server/auth';
 import { CHUNK_BYTES, WORKSPACE_ID, type Query } from '../shared/protocol';
 import type { Database } from '../server/database';
 const pg = new PGlite();
@@ -60,12 +60,13 @@ describe('password and API boundaries', () => {
   });
   it('rejects forged, expired and password-rotated sessions', () => {
     const req = (token: string) => new Request('https://board.example', { headers: { cookie: `corkboard_session=${token}` } });
-    const token = sessionToken();
-    expect(authenticated(req(token))).toBe(true);
-    expect(authenticated(req(token.slice(0, -1) + (token.endsWith('0') ? '1' : '0')))).toBe(false);
-    expect(authenticated(req(sessionToken(Date.now() - 8 * 86400_000)))).toBe(false);
+    const auth = environmentAuth();
+    const token = sessionToken(auth);
+    expect(authenticated(req(token), auth)).toBe(true);
+    expect(authenticated(req(token.slice(0, -1) + (token.endsWith('0') ? '1' : '0')), auth)).toBe(false);
+    expect(authenticated(req(sessionToken(auth, Date.now() - 8 * 86400_000)), auth)).toBe(false);
     vi.stubEnv('BOARD_PASSWORD', 'another-long-workspace-password');
-    expect(authenticated(req(token))).toBe(false);
+    expect(authenticated(req(token), environmentAuth())).toBe(false);
     vi.stubEnv('BOARD_PASSWORD', 'testing-a-private-workspace-password');
   });
   it('rate-limits password guessing using database-backed counters', async () => {
@@ -153,5 +154,54 @@ describe('chunked Neon attachments', () => {
   });
   it('clears the browser session on logout', async () => {
     expect((await call('logout',{})).headers.get('set-cookie')).toContain('Max-Age=0');
+  });
+});
+
+describe('changing the workspace password from the app', () => {
+  const stored = () => pg.query('select password_hash from corkboard_settings').then(r => r.rows as { password_hash: string }[]);
+  it('bootstraps from BOARD_PASSWORD until a password is chosen, even before the settings table exists', async () => {
+    const missingTable: Database = { query: async () => { throw Object.assign(new Error('relation does not exist'), { code: '42P01' }); } };
+    expect((await loadAuth(missingTable)).source).toBe('environment');
+    expect((await loadAuth(db)).source).toBe('environment');
+    const hash = hashPassword('a-password-chosen-in-the-app');
+    const chosen = await loadAuth({ query: async () => [{ password_hash: hash }] });
+    expect(chosen.source).toBe('database');
+    expect(chosen.verify('a-password-chosen-in-the-app')).toBe(true);
+    expect(chosen.verify('testing-a-private-workspace-password')).toBe(false);
+    expect(hash).not.toContain('a-password-chosen-in-the-app');
+  });
+  it('requires an unlocked session and the current password, and enforces the minimum length', async () => {
+    const saved = session; session = '';
+    expect((await call('change-password', { current: 'x', next: 'a-brand-new-workspace-password' })).status).toBe(401);
+    session = saved;
+    expect((await call('change-password', { current: 'not-the-current-password', next: 'a-brand-new-workspace-password' })).status).toBe(401);
+    expect((await call('change-password', { current: process.env.BOARD_PASSWORD, next: 'too-short' })).status).toBe(400);
+    expect(await stored()).toEqual([]);
+  });
+  it('stores only a salted hash, keeps this device unlocked, and signs out every other session', async () => {
+    const oldSession = session;
+    const response = await call('change-password', { current: process.env.BOARD_PASSWORD, next: 'a-brand-new-workspace-password' });
+    expect(response.status).toBe(200);
+    const rows = await stored();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].password_hash).toMatch(/^scrypt\$[a-f0-9]{32}\$[a-f0-9]{64}$/);
+    session = response.headers.get('set-cookie')!.split(';')[0];
+    expect((await (await call('session')).json()).authenticated).toBe(true);
+    session = oldSession;
+    expect((await (await call('session')).json()).authenticated).toBe(false);
+    expect((await call('query', query('notes_boards'))).status).toBe(401);
+  });
+  it('unlocks with the chosen password and no longer with BOARD_PASSWORD', async () => {
+    expect((await call('login', { password: process.env.BOARD_PASSWORD })).status).toBe(401);
+    const response = await call('login', { password: 'a-brand-new-workspace-password' });
+    expect(response.status).toBe(200);
+    session = response.headers.get('set-cookie')!.split(';')[0];
+    expect((await call('query', query('notes_boards'))).status).toBe(200);
+  });
+  it('keeps the stored hash out of the generic query API and survives a schema rerun', async () => {
+    expect(() => compileQuery(query('corkboard_settings'))).toThrow();
+    const before = await stored();
+    await pg.query(schema);
+    expect(await stored()).toEqual(before);
   });
 });

@@ -1,32 +1,64 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import type { Database } from './database.js';
 export class HttpError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
-export function password(): string {
-  const value = process.env.BOARD_PASSWORD;
-  if (!value || value.length < 16) throw new HttpError(503, 'Set BOARD_PASSWORD to at least 16 characters in the server environment.');
-  return value;
-}
+export const MIN_PASSWORD_LENGTH = 16;
+/** The active workspace password: either saved in Neon (chosen in the app) or the BOARD_PASSWORD bootstrap value. */
+export type Auth = { source: 'database' | 'environment'; secret: string; verify: (value: string) => boolean };
+export const SETTINGS_TABLE_SQL = `create table if not exists corkboard_settings (
+ id integer primary key check(id = 1), password_hash text not null,
+ updated_at timestamptz not null default now()
+)`;
 const digest = (value: string) => createHash('sha256').update(value).digest();
-export function matchesPassword(value: string): boolean {
-  return timingSafeEqual(digest(value), digest(password()));
+export function hashPassword(value: string, salt = randomBytes(16).toString('hex')): string {
+  return `scrypt$${salt}$${scryptSync(value, salt, 32).toString('hex')}`;
 }
-function signature(value: string): string {
-  return createHmac('sha256', password()).update(`corkboard-session:${value}`).digest('hex');
+function verifyHash(value: string, stored: string): boolean {
+  const [scheme, salt, hash] = stored.split('$');
+  if (scheme !== 'scrypt' || !salt || !hash) return false;
+  return timingSafeEqual(Buffer.from(hash, 'hex'), scryptSync(value, salt, 32));
 }
-export function sessionToken(now = Date.now()): string {
+export function environmentAuth(): Auth {
+  const value = process.env.BOARD_PASSWORD;
+  if (!value || value.length < MIN_PASSWORD_LENGTH) throw new HttpError(503, 'Set BOARD_PASSWORD to at least 16 characters in the server environment.');
+  return { source: 'environment', secret: value, verify: candidate => timingSafeEqual(digest(candidate), digest(value)) };
+}
+function databaseAuth(hash: string): Auth {
+  return { source: 'database', secret: hash, verify: candidate => verifyHash(candidate, hash) };
+}
+/** A password chosen in the app wins; otherwise fall back to BOARD_PASSWORD. A missing settings table means nothing was chosen yet. */
+export async function loadAuth(db: Database): Promise<Auth> {
+  let row: { password_hash?: string } | undefined;
+  try { [row] = await db.query('select password_hash from corkboard_settings where id = 1'); }
+  catch (error) { if ((error as { code?: string })?.code !== '42P01') throw error; }
+  return row?.password_hash ? databaseAuth(row.password_hash) : environmentAuth();
+}
+export async function changePassword(db: Database, auth: Auth, current: unknown, next: unknown): Promise<Auth> {
+  if (typeof current !== 'string' || typeof next !== 'string' || current.length > 1000 || next.length > 1000) throw new HttpError(400, 'Enter your current password and a new one.');
+  if (!auth.verify(current)) throw new HttpError(401, 'Your current password is incorrect.');
+  if (next.length < MIN_PASSWORD_LENGTH) throw new HttpError(400, `Choose a new password of at least ${MIN_PASSWORD_LENGTH} characters.`);
+  if (next === current) throw new HttpError(400, 'Choose a password different from the current one.');
+  const hash = hashPassword(next);
+  await db.query(SETTINGS_TABLE_SQL);
+  await db.query(`insert into corkboard_settings(id, password_hash) values (1, $1)
+    on conflict(id) do update set password_hash = excluded.password_hash, updated_at = now()`, [hash]);
+  return databaseAuth(hash);
+}
+function signature(auth: Auth, value: string): string {
+  return createHmac('sha256', `corkboard:${auth.source}:${auth.secret}`).update(`corkboard-session:${value}`).digest('hex');
+}
+export function sessionToken(auth: Auth, now = Date.now()): string {
   const body = `${now + 7 * 86400_000}.${randomBytes(24).toString('hex')}`;
-  return `${body}.${signature(body)}`;
+  return `${body}.${signature(auth, body)}`;
 }
-export function authenticated(req: Request, now = Date.now()): boolean {
-  password(); // Configuration failures never grant access.
+export function authenticated(req: Request, auth: Auth, now = Date.now()): boolean {
   const token = req.headers.get('cookie')?.split(';').map(s => s.trim()).find(s => s.startsWith('corkboard_session='))?.slice(18);
   if (!token) return false;
   const parts = token.split('.');
   if (parts.length !== 3 || !/^\d{13}$/.test(parts[0]) || !/^[a-f0-9]{48}$/.test(parts[1]) || !/^[a-f0-9]{64}$/.test(parts[2])) return false;
   if (Number(parts[0]) <= now || Number(parts[0]) > now + 7 * 86400_000) return false;
-  return timingSafeEqual(Buffer.from(parts[2], 'hex'), Buffer.from(signature(`${parts[0]}.${parts[1]}`), 'hex'));
+  return timingSafeEqual(Buffer.from(parts[2], 'hex'), Buffer.from(signature(auth, `${parts[0]}.${parts[1]}`), 'hex'));
 }
 export function cookie(token: string, req: Request): string {
   const secure = process.env.VERCEL || new URL(req.url).protocol === 'https:';
@@ -37,9 +69,9 @@ export function checkMutation(req: Request) {
   const origin = req.headers.get('origin');
   if (origin && origin !== new URL(req.url).origin) throw new HttpError(403, 'Request rejected.');
 }
-export async function limitLogin(db: Database, req: Request) {
+export async function limitLogin(db: Database, req: Request, auth: Auth) {
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'local';
-  const key = createHmac('sha256', password()).update(ip).digest('hex');
+  const key = createHmac('sha256', auth.secret).update(ip).digest('hex');
   await db.query('delete from corkboard_login_attempts where expires_at < now()');
   const [row] = await db.query(`insert into corkboard_login_attempts(key, attempts, expires_at)
     values ($1, 1, now() + interval '15 minutes')
