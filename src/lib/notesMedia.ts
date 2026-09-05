@@ -6,7 +6,7 @@
 // starts with the owner's user id — <uid>/<uuid>-orig.<ext> for originals,
 // <uid>/<uuid>-thumb.jpg for the downscaled canvas rendition.
 
-import { supabase } from './supabase';
+import { dataClient } from './dataClient';
 import {
   extFromMime,
   IMAGE_MAX_RENDITION,
@@ -23,7 +23,7 @@ export type UploadedImage = {
 const BUCKET = 'notes-media';
 
 async function currentUserId(): Promise<string> {
-  const { data, error } = await supabase.auth.getUser();
+  const { data, error } = await dataClient.auth.getUser();
   if (error || !data.user) throw new Error('Not signed in.');
   return data.user.id;
 }
@@ -73,7 +73,7 @@ export async function uploadImage(file: File): Promise<UploadedImage> {
   const uploaded: string[] = [];
   try {
     const dims = await readImageDims(file);
-    const { error: origErr } = await supabase.storage
+    const { error: origErr } = await dataClient.storage
       .from(BUCKET)
       .upload(origPath, file, { contentType: file.type, upsert: false });
     if (origErr) throw origErr;
@@ -83,7 +83,7 @@ export async function uploadImage(file: File): Promise<UploadedImage> {
     const rendition = await makeCanvasRendition(file);
     if (rendition) {
       thumbPath = `${uid}/${stem}-thumb.jpg`;
-      const { error: thumbErr } = await supabase.storage
+      const { error: thumbErr } = await dataClient.storage
         .from(BUCKET)
         .upload(thumbPath, rendition, { contentType: 'image/jpeg', upsert: false });
       if (thumbErr) throw thumbErr;
@@ -109,7 +109,7 @@ export async function uploadFile(file: File): Promise<UploadedFile> {
   const dot = file.name.lastIndexOf('.');
   const ext = dot > 0 ? file.name.slice(dot + 1).toLowerCase().replace(/[^a-z0-9]/g, '') : 'bin';
   const path = `${uid}/${crypto.randomUUID()}-file.${ext || 'bin'}`;
-  const { error } = await supabase.storage
+  const { error } = await dataClient.storage
     .from(BUCKET)
     .upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false });
   if (error) throw error;
@@ -123,7 +123,7 @@ export async function uploadFile(file: File): Promise<UploadedFile> {
 
 /** Signed URL that triggers a download with the card's original filename. */
 export async function signedDownloadUrl(path: string, filename: string): Promise<string> {
-  const { data, error } = await supabase.storage
+  const { data, error } = await dataClient.storage
     .from(BUCKET)
     .createSignedUrl(path, SIGN_TTL_S, { download: filename });
   if (error || !data?.signedUrl) throw error ?? new Error('Could not sign URL');
@@ -133,7 +133,7 @@ export async function signedDownloadUrl(path: string, filename: string): Promise
 /** Delete storage objects (upload-failure cleanup; Sprint 18 uses it for permanent delete). */
 export async function removeStorageObjects(paths: string[]): Promise<void> {
   if (!paths.length) return;
-  const { error } = await supabase.storage.from(BUCKET).remove(paths);
+  const { error } = await dataClient.storage.from(BUCKET).remove(paths);
   if (error) throw error;
 }
 
@@ -144,7 +144,7 @@ const urlCache = new Map<string, { url: string; expiresAt: number }>();
 export async function signedMediaUrl(path: string): Promise<string> {
   const hit = urlCache.get(path);
   if (hit && hit.expiresAt > Date.now() + 60_000) return hit.url;
-  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, SIGN_TTL_S);
+  const { data, error } = await dataClient.storage.from(BUCKET).createSignedUrl(path, SIGN_TTL_S);
   if (error || !data?.signedUrl) throw error ?? new Error('Could not sign URL');
   urlCache.set(path, { url: data.signedUrl, expiresAt: Date.now() + SIGN_TTL_S * 1000 });
   return data.signedUrl;

@@ -111,6 +111,7 @@ import { buildBoardTree, wouldCreateCycle, type BoardNode } from '../lib/notesBo
 import { marqueeHits, normalizeRect, type Rect } from '../lib/notesMarquee';
 import { useFavicon } from '../hooks/useFavicon';
 import './Notes.css';
+import { requestsPending } from '../lib/dataClient';
 
 const TOOLBAR_TYPES: Array<{
   type: CardType;
@@ -192,7 +193,7 @@ const DEFAULT_H: Record<CardType, number> = {
   comment: 110,
 };
 
-export default function Notes() {
+export default function Notes({ onLock }: { onLock?: () => Promise<void> }) {
   useFavicon('/icons/papers3.png', 'Digital Corkboard');
 
   const [rootBoard, setRootBoard] = useState<Board | null>(null);
@@ -303,6 +304,12 @@ export default function Notes() {
     });
   }, []);
   const removeCardsLocal = useCallback((ids: Set<string>) => {
+    for (const id of ids) {
+      const timer = saveTimers.current.get(id);
+      if (timer) window.clearTimeout(timer);
+      saveTimers.current.delete(id);
+      pendingSaves.current.delete(id);
+    }
     setCards((prev) => prev.filter((c) => !ids.has(c.id)));
   }, []);
   const upsertArrowLocal = useCallback((arrow: Arrow) => {
@@ -351,7 +358,7 @@ export default function Notes() {
         setCurrentBoardId(root.id);
       } catch (err) {
         console.error(err);
-        setStatusMsg('Could not load Notes. Have you run migration 0004?');
+        setStatusMsg((err as Error).message || 'Could not open the workspace.');
       }
     })();
   }, []);
@@ -1277,6 +1284,14 @@ export default function Notes() {
 
   // ── Per-card payload edit (debounced save + coalesced history) ────────
   const saveTimers = useRef<Map<string, number>>(new Map());
+  const pendingSaves = useRef<Map<string, Partial<Card>>>(new Map());
+  useEffect(() => {
+    const warnUnsaved = (event: BeforeUnloadEvent) => {
+      if (pendingSaves.current.size || requestsPending()) { event.preventDefault(); event.returnValue = ''; }
+    };
+    window.addEventListener('beforeunload', warnUnsaved);
+    return () => window.removeEventListener('beforeunload', warnUnsaved);
+  }, []);
   // One editing burst per card: the first edit snapshots the pre-burst
   // card; the debounce flush pairs it with the post-burst card to push a
   // single history command for the whole burst.
@@ -1323,6 +1338,7 @@ export default function Notes() {
         const before = cardsRef.current.find((c) => c.id === id);
         if (before) burstRef.current.begin(id, before);
       }
+      pendingSaves.current.set(id, { ...pendingSaves.current.get(id), ...patch });
       patchCardLocal(id, patch);
       const existing = saveTimers.current.get(id);
       if (existing) window.clearTimeout(existing);
@@ -1331,9 +1347,13 @@ export default function Notes() {
         const after = cardsRef.current.find((c) => c.id === id);
         const before = burstRef.current.flush(id);
         try {
-          await updateCard(id, patch as any);
+          const saving = pendingSaves.current.get(id) ?? patch;
+          await updateCard(id, saving as any);
+          if (pendingSaves.current.get(id) === saving) pendingSaves.current.delete(id);
+          setStatusMsg('Saved.');
         } catch (err) {
           console.error(err);
+          setStatusMsg('Could not save: ' + (err as Error).message);
           return;
         }
         if (withHistory && before && after) pushBurstCommand(before, after);
@@ -2062,7 +2082,7 @@ export default function Notes() {
         });
       } catch (err) {
         console.error(err);
-        setStatusMsg('Could not create the arrow — has migration 0012 been run?');
+        setStatusMsg('Could not save the arrow. Check your connection and try again.');
       }
     };
     document.addEventListener('mousemove', onMove);
@@ -3173,6 +3193,13 @@ export default function Notes() {
           </div>
           <button className="btn-quiet" onClick={() => setHelpOpen(true)} title="Keyboard shortcuts (?)">⌨</button>
           <button className="btn-quiet" onClick={openTrash} title="Trash">Trash</button>
+          {pendingSaves.current.size > 0 && <button className="btn-quiet" onClick={() => {
+            for (const id of pendingSaves.current.keys()) scheduleCardSave(id, {}, { delay: 0, history: false });
+          }}>Retry save</button>}
+          {onLock && <button className="btn-quiet" onClick={async () => {
+            if (pendingSaves.current.size || requestsPending()) { setStatusMsg('Still saving. Please wait a moment before locking.'); return; }
+            try { await onLock(); } catch (err) { setStatusMsg((err as Error).message); }
+          }}>Lock</button>}
         </div>
       </header>
 
@@ -4434,7 +4461,7 @@ function ImageBody({ card, onPatch }: { card: Card; onPatch: (p: Partial<Card>) 
     return (
       <div className="img-wrap">
         <div className="img-error">
-          image unavailable — check that migration 0009 (notes-media bucket) is applied
+          Image unavailable. Check your connection and try opening the board again.
         </div>
       </div>
     );

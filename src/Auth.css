@@ -1,0 +1,9 @@
+.workspace-lock { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; padding: 24px; background: var(--bg); overflow: auto; }
+.workspace-login { width: min(100%, 420px); padding: 36px; border: 1px solid var(--line); background: var(--page); box-shadow: 0 15px 50px #2b241914; }
+.workspace-eyebrow { letter-spacing: .2em; font-size: 13px; color: var(--ink-soft); }
+.workspace-login h1 { font: 36px 'Cormorant Garamond', Georgia, serif; margin: 22px 0 10px; }
+.workspace-login label { display: block; margin-top: 28px; }
+.workspace-login input { width: 100%; padding: 12px; margin: 8px 0 16px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 3px; font-size: 16px; }
+.workspace-login button { width: 100%; padding: 12px; background: var(--accent); color: white; border: 0; border-radius: 3px; font-size: 17px; cursor: pointer; }
+.workspace-login button:disabled { opacity: .6; cursor: wait; }
+.workspace-login [role=alert] { color: var(--red); }

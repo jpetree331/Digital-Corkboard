@@ -1,45 +1,78 @@
 # Digital Corkboard
 
-The standalone Notes room from Wardrobe: a Milanote-inspired infinite canvas with the original warm parchment design and an optional gray skin.
+A private, Milanote-inspired Notes workspace with the original parchment canvas and optional gray skin. React + Vite on the frontend, Vercel Functions on the server, and Neon Postgres for boards **and attachments**. No Supabase project or browser database is required.
+
+## Deploy on Vercel
+
+1. Import this GitHub repository into Vercel. Use the repository root (`./`), the **Vite** framework preset, `npm run build`, output directory `dist`, and **Node.js 22.x**. `vercel.json` supplies the build/output settings and API configuration.
+2. Connect a **Neon** database using Vercel's Storage/Marketplace integration. Ensure the project has a server environment variable named **`DATABASE_URL`** containing the Neon connection string. **`POSTGRES_URL`** is also accepted. Apply it to the deployment environment you intend to use.
+3. In that database's Neon SQL Editor, run the entire [`db/schema.sql`](db/schema.sql) file once. Use a dedicated database for this app. The script creates only this app's tables and is safe to rerun.
+4. Add a server environment variable named **`BOARD_PASSWORD`**: choose a long, random password of **at least 16 characters**. Share it privately with your friend. Do not put it in this repository or prefix either secret with `VITE_`.
+5. Deploy or redeploy after setting the environment variables. Open the site, unlock it, create a note, and reload to confirm persistence. Use the same production URL on another device to access the same workspace.
+
+Vercel serves `/api/corkboard` as a Node function; `dist/` alone is no longer a complete deployment. Do not add a blanket rewrite that routes `/api/*` to `index.html`. If previews should use separate data, connect a separate Neon branch/database and password to the Preview environment.
+
+Alternatively, with server variables available locally, apply the schema using:
+
+```sh
+npm run db:setup
+```
+
+That command reads `.env.local` if present and runs the schema in a transaction. Building the app does **not** modify a database. The API shows a setup error instead of falling back to unsaved/local data if Neon is unavailable.
 
 ## Run locally
 
-Install Node.js 22 or later, then run these commands from this folder:
+Install Node.js 22, then:
 
 ```sh
 npm ci
+```
+
+Copy `.env.example` to `.env.local` and replace the sample values with your development Neon connection and a private workspace password. Run `npm run db:setup`, then:
+
+```sh
 npm run dev
 ```
 
-Open http://localhost:5181. The app opens directly to an empty Home board. No account, API keys, Supabase project, or other Wardrobe rooms are required.
+Open http://localhost:5181. Vite runs the same API handler locally. Use a development database/branch when testing.
 
 ```sh
-npm test          # Notes unit tests and local database integration tests
-npm run build    # TypeScript check and production build in dist/
-npm run preview  # Preview the production build at http://localhost:4174
+npm test          # Notes tests plus isolated Postgres/API integration tests
+npm run build    # TypeScript check and Vite production build
+npm run preview  # Local production preview with the API, using .env.local
 ```
 
-## Included
+Tests use throwaway in-memory Postgres (PGlite); they never connect to a real Neon database. PGlite is a test dependency only and is absent from the production browser bundle.
+
+## Features
 
 - Rich-text notes, checklists, headings, links, documents, images, file attachments, columns, color swatches, comments, and nested boards.
-- Pan and zoom, drag and resize, multi-selection, arrows, board search, favorites, an Unsorted tray, and keyboard shortcuts.
+- Pan/zoom, multi-selection, arrows, search, starred boards, Unsorted tray, keyboard shortcuts, and both visual skins.
 - Undo/redo, restorable trash, and board exports to PNG, PDF, and Markdown.
-- Both parchment and Milanote-style gray skins.
+- Ordered remote saves, a retry button for unsaved editor changes, and an unlock prompt that preserves the open board when a session expires.
+- A Lock button that waits for pending saves before allowing you to lock the workspace.
 
-## Where your work is saved
+## Data and access
 
-Boards and uploaded files stay in this browser's IndexedDB database (`digital-corkboard`), using embedded PGlite/Postgres. The app automatically saves changes. Each browser profile and site address has its own separate data; use the same address and port when returning to your boards. Use one open app tab at a time.
+This deployment has **one shared private workspace**, not separate user accounts or real-time collaboration. Anyone with its password can read and edit its contents. Avoid editing the same card simultaneously on different devices; refresh to see edits from another device.
 
-Clearing site data, using private browsing, or deleting the browser profile can remove that work. Export important boards regularly. PNG/PDF/Markdown exports are readable copies, not a full database backup or re-import format. There is no cloud sync or collaboration service.
+The API verifies a signed, HttpOnly, SameSite cookie before database or attachment access. Production cookies are Secure and expire after seven days. Login attempts are limited in the database. Changing `BOARD_PASSWORD` and redeploying invalidates previous sessions. The database URL and password stay on the server.
 
-Link cards remain editable and clickable. Automatic website title/thumbnail fetching required Wardrobe's authenticated server and is unavailable in this standalone version. Fonts and remote links/embeds may require an internet connection.
+Notes, nested boards, trash, images, and files persist in Neon. Board view preferences (zoom, skin, recent boards) remain device-local. Attachments may be up to **25 MB each**; uploads and downloads use 512 KB chunks to stay below Vercel's function payload limit. Large files take multiple requests and consume database storage. Individual JSON operations are limited to 2 MB and list responses to 4 MB.
 
-## Hosting
+Existing notes from the earlier browser-storage version are **not automatically uploaded**. Export anything you need before switching; leave that browser's site data intact. PNG/PDF/Markdown exports are readable copies, not a full database restore format. For full backups, back up the Neon database, including `corkboard_files` and `corkboard_file_chunks`.
 
-`npm run build` produces a static site in `dist/`, suitable for a host serving it at the site root. Use HTTPS (or localhost). No server environment variables or database setup are needed. Hosting the app does not upload or share the boards: each visitor's work remains in their own browser.
+Link cards remain editable/clickable. Automatic website metadata previews are still unavailable. Fonts and external embeds require internet access.
 
-## Extraction scope
+## Troubleshooting
 
-Copied from `life-dashboard/app`: the Notes page, its helpers and tests, shared typography, its favicon, and the local database adapter. Only Notes schema migrations are included; the small shared timestamp trigger is included in the adapter prelude.
+- **Set BOARD_PASSWORD…**: configure a password of at least 16 characters in the correct Vercel environment, then redeploy.
+- **Database setup is incomplete**: run `db/schema.sql` against the database used by the deployment.
+- **Database request failed**: check the Neon connection variable and database availability. Connection details are deliberately not exposed in browser errors.
+- **Could not save / Retry save**: keep the page open, restore the connection, and click Retry save. Do not reload away unsaved work.
 
-No personal notes, screenshots, database contents, credentials, other rooms, or source repository history are included. This is an independent application inspired by Milanote, not an official Milanote product.
+## Provenance
+
+Extracted from the Wardrobe Notes room without other rooms, personal notes, credentials, screenshots, or original repository history. This is an independent app inspired by Milanote, not an official Milanote product.
+
+Technical references: [Neon serverless driver](https://neon.com/docs/serverless/serverless-driver), [Vercel Node functions](https://vercel.com/docs/functions/runtimes/node-js), [Vercel payload limits](https://vercel.com/docs/functions/limitations).

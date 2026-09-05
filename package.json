@@ -3,17 +3,17 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "A standalone local-first infinite notes board, extracted from Wardrobe.",
+  "description": "A private infinite notes board backed by Neon Postgres on Vercel.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview --port 4174",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "db:setup": "node --env-file-if-exists=.env.local scripts/setup-db.mjs"
   },
   "dependencies": {
-    "@electric-sql/pglite": "^0.5.4",
-    "@supabase/supabase-js": "^2.45.0",
+    "@neondatabase/serverless": "^1.1.0",
     "@tiptap/extension-highlight": "^2.27.2",
     "@tiptap/extension-link": "^2.27.2",
     "@tiptap/extension-placeholder": "^2.27.2",
@@ -28,6 +28,7 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
@@ -40,5 +41,8 @@
     "typescript": "^5.5.3",
     "vite": "^5.4.0",
     "vitest": "^4.1.5"
+  },
+  "engines": {
+    "node": "22.x"
   }
 }

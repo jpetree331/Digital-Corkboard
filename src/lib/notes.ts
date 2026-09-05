@@ -1,11 +1,11 @@
 // Typed CRUD for the Notes room. Three tables (notes_boards, notes_cards,
-// notes_trash) — see supabase/migrations/0004_notes.sql for the schema.
+// notes_trash) — see db/schema.sql for the schema.
 //
 // Boards form a tree. Each user has exactly one root board (is_root=true);
 // nested boards have parent_id set. Cards live on a board; the special
 // 'board' card type is a tile that points at another board via board_ref.
 
-import { supabase } from './supabase';
+import { dataClient } from './dataClient';
 import { removeStorageObjects } from './notesMedia';
 import { collectMediaPaths, remapBoardSnapshot, type BoardSnapshot } from './notesTrashRestore';
 
@@ -144,19 +144,19 @@ export function explainNotesError(err: unknown): string | null {
   const e = err as { code?: string; message?: string; statusCode?: number | string } | null;
   const msg = e?.message ?? '';
   if (e?.code === '23514' || /notes_cards_type_check/i.test(msg)) {
-    return 'The local board database could not complete this operation. Reload the app and check that this site can store data.';
+    return 'The database could not complete this operation. Check your connection and the Neon database setup.';
   }
   if (e?.code === '42P01' || /relation .* does not exist/i.test(msg)) {
-    return 'The local board database could not complete this operation. Reload the app and check that this site can store data.';
+    return 'The database could not complete this operation. Check your connection and the Neon database setup.';
   }
   if (e?.code === '42703' || /column .* does not exist/i.test(msg)) {
-    return 'The local board database could not complete this operation. Reload the app and check that this site can store data.';
+    return 'The database could not complete this operation. Check your connection and the Neon database setup.';
   }
   if (/bucket.*not.*found|bucket_id/i.test(msg)) {
-    return 'The local board database could not complete this operation. Reload the app and check that this site can store data.';
+    return 'The database could not complete this operation. Check your connection and the Neon database setup.';
   }
   if (/row.level security|violates.*policy|not.?authorized/i.test(msg) || e?.statusCode === 403) {
-    return 'The local board database could not complete this operation. Reload the app and check that this site can store data.';
+    return 'The database could not complete this operation. Check your connection and the Neon database setup.';
   }
   return null;
 }
@@ -164,7 +164,7 @@ export function explainNotesError(err: unknown): string | null {
 // ── Auth helper ────────────────────────────────────────────────────────
 
 async function currentUserId(): Promise<string> {
-  const { data, error } = await supabase.auth.getUser();
+  const { data, error } = await dataClient.auth.getUser();
   if (error || !data.user) throw new Error('Not signed in.');
   return data.user.id;
 }
@@ -177,7 +177,7 @@ async function currentUserId(): Promise<string> {
  */
 export async function getOrCreateRootBoard(): Promise<Board> {
   const userId = await currentUserId();
-  const { data: existing, error: selErr } = await supabase
+  const { data: existing, error: selErr } = await dataClient
     .from('notes_boards')
     .select('*')
     .eq('user_id', userId)
@@ -185,7 +185,7 @@ export async function getOrCreateRootBoard(): Promise<Board> {
     .maybeSingle();
   if (selErr) throw selErr;
   if (existing) return existing as Board;
-  const { data, error } = await supabase
+  const { data, error } = await dataClient
     .from('notes_boards')
     .insert({ user_id: userId, name: 'Home', is_root: true })
     .select()
@@ -193,7 +193,7 @@ export async function getOrCreateRootBoard(): Promise<Board> {
   // StrictMode can start two initial loads before either insert completes.
   // The unique root index arbitrates; both callers should receive that root.
   if (error?.code === '23505') {
-    const { data: root, error: retryError } = await supabase
+    const { data: root, error: retryError } = await dataClient
       .from('notes_boards').select('*').eq('user_id', userId).eq('is_root', true).single();
     if (retryError) throw retryError;
     return root as Board;
@@ -203,7 +203,7 @@ export async function getOrCreateRootBoard(): Promise<Board> {
 }
 
 export async function getBoard(id: string): Promise<Board | null> {
-  const { data, error } = await supabase
+  const { data, error } = await dataClient
     .from('notes_boards')
     .select('*')
     .eq('id', id)
@@ -227,7 +227,7 @@ export async function getBoardAncestry(targetId: string): Promise<Board[]> {
 }
 
 export async function renameBoard(id: string, name: string): Promise<void> {
-  const { error } = await supabase
+  const { error } = await dataClient
     .from('notes_boards')
     .update({ name })
     .eq('id', id);
@@ -239,7 +239,7 @@ export async function updateBoardMeta(
   id: string,
   patch: Partial<{ starred: boolean; tile_color: SwatchKey; tile_icon: string }>,
 ): Promise<void> {
-  const { error } = await supabase.from('notes_boards').update(patch).eq('id', id);
+  const { error } = await dataClient.from('notes_boards').update(patch).eq('id', id);
   if (error) throw error;
 }
 
@@ -249,20 +249,20 @@ export async function updateBoardMeta(
  * (lib/notesBoardTree.wouldCreateCycle); the root board never moves.
  */
 export async function reparentBoard(boardId: string, newParentId: string): Promise<void> {
-  const { data: board, error: bErr } = await supabase
+  const { data: board, error: bErr } = await dataClient
     .from('notes_boards')
     .select('is_root')
     .eq('id', boardId)
     .single();
   if (bErr) throw bErr;
   if ((board as { is_root: boolean }).is_root) throw new Error('The root board cannot be moved.');
-  const { error } = await supabase
+  const { error } = await dataClient
     .from('notes_boards')
     .update({ parent_id: newParentId })
     .eq('id', boardId);
   if (error) throw error;
   // The tile that opens this board lives on the old parent — bring it along.
-  const { error: tErr } = await supabase
+  const { error: tErr } = await dataClient
     .from('notes_cards')
     .update({ board_id: newParentId, parent_column: null, column_index: null })
     .eq('board_ref', boardId);
@@ -272,7 +272,7 @@ export async function reparentBoard(boardId: string, newParentId: string): Promi
 // ── Cards ──────────────────────────────────────────────────────────────
 
 export async function listCards(boardId: string): Promise<Card[]> {
-  const { data, error } = await supabase
+  const { data, error } = await dataClient
     .from('notes_cards')
     .select('*')
     .eq('board_id', boardId)
@@ -295,7 +295,7 @@ export async function createCard(input: {
   column_index?: number | null;
 }): Promise<Card> {
   const userId = await currentUserId();
-  const { data, error } = await supabase
+  const { data, error } = await dataClient
     .from('notes_cards')
     .insert({
       user_id: userId,
@@ -327,7 +327,7 @@ export async function createBoardWithTile(input: {
   tile_icon?: string;
 }): Promise<{ board: Board; tile: Card }> {
   const userId = await currentUserId();
-  const { data: board, error: bErr } = await supabase
+  const { data: board, error: bErr } = await dataClient
     .from('notes_boards')
     .insert({
       user_id: userId,
@@ -371,7 +371,7 @@ export async function updateCard(id: string, patch: Partial<{
   // The DB CHECK constraint still enforces the allowed set.
   type: CardType;
 }>): Promise<Card> {
-  const { data, error } = await supabase
+  const { data, error } = await dataClient
     .from('notes_cards')
     .update(patch)
     .eq('id', id)
@@ -394,7 +394,7 @@ export async function softDeleteCard(card: Card): Promise<string> {
   if (card.type === 'board' && card.board_ref) {
     // Snapshot the entire board subtree so we could restore it later.
     const subtree = await snapshotBoardSubtree(card.board_ref);
-    const { data: tRow, error: tErr } = await supabase
+    const { data: tRow, error: tErr } = await dataClient
       .from('notes_trash')
       .insert({
         user_id: userId,
@@ -406,14 +406,14 @@ export async function softDeleteCard(card: Card): Promise<string> {
       .single();
     if (tErr) throw tErr;
     // ON DELETE CASCADE on notes_boards will take everything below.
-    const { error } = await supabase.from('notes_boards').delete().eq('id', card.board_ref);
+    const { error } = await dataClient.from('notes_boards').delete().eq('id', card.board_ref);
     if (error) throw error;
     // The tile card itself is also gone via cascade from board_ref FK,
     // but in case the FK isn't cascading (shouldn't happen), explicit:
-    await supabase.from('notes_cards').delete().eq('id', card.id);
+    await dataClient.from('notes_cards').delete().eq('id', card.id);
     return (tRow as { id: string }).id;
   }
-  const { data: tRow, error: tErr } = await supabase
+  const { data: tRow, error: tErr } = await dataClient
     .from('notes_trash')
     .insert({
       user_id: userId,
@@ -424,7 +424,7 @@ export async function softDeleteCard(card: Card): Promise<string> {
     .select('id')
     .single();
   if (tErr) throw tErr;
-  const { error } = await supabase.from('notes_cards').delete().eq('id', card.id);
+  const { error } = await dataClient.from('notes_cards').delete().eq('id', card.id);
   if (error) throw error;
   return (tRow as { id: string }).id;
 }
@@ -437,7 +437,7 @@ export async function softDeleteCard(card: Card): Promise<string> {
  */
 export async function insertCardRow(card: Card): Promise<Card> {
   const userId = await currentUserId();
-  const { data, error } = await supabase
+  const { data, error } = await dataClient
     .from('notes_cards')
     .insert({
       id: card.id,
@@ -464,7 +464,7 @@ export async function insertCardRow(card: Card): Promise<Card> {
  * callers check hasUserContent before choosing this path).
  */
 export async function hardDeleteCardRow(id: string): Promise<void> {
-  const { error } = await supabase.from('notes_cards').delete().eq('id', id);
+  const { error } = await dataClient.from('notes_cards').delete().eq('id', id);
   if (error) throw error;
 }
 
@@ -475,13 +475,13 @@ export async function hardDeleteCardRow(id: string): Promise<void> {
  * board with any content goes through softDeleteCard(tile) instead.
  */
 export async function hardDeleteEmptyBoard(boardId: string): Promise<void> {
-  const { error } = await supabase.from('notes_boards').delete().eq('id', boardId);
+  const { error } = await dataClient.from('notes_boards').delete().eq('id', boardId);
   if (error) throw error;
 }
 
 /** Remove a trash entry (used when an undo retracts a soft-delete). */
 export async function removeTrashEntry(id: string): Promise<void> {
-  const { error } = await supabase.from('notes_trash').delete().eq('id', id);
+  const { error } = await dataClient.from('notes_trash').delete().eq('id', id);
   if (error) throw error;
 }
 
@@ -519,7 +519,7 @@ async function snapshotBoardSubtree(rootBoardId: string): Promise<{
  */
 export async function softDeleteColumn(column: Card, members: Card[]): Promise<string> {
   const userId = await currentUserId();
-  const { data: tRow, error: tErr } = await supabase
+  const { data: tRow, error: tErr } = await dataClient
     .from('notes_trash')
     .insert({
       user_id: userId,
@@ -530,7 +530,7 @@ export async function softDeleteColumn(column: Card, members: Card[]): Promise<s
     .select('id')
     .single();
   if (tErr) throw tErr;
-  const { error } = await supabase.from('notes_cards').delete().eq('id', column.id);
+  const { error } = await dataClient.from('notes_cards').delete().eq('id', column.id);
   if (error) throw error;
   return (tRow as { id: string }).id;
 }
@@ -544,7 +544,7 @@ export async function softDeleteTodoItem(
   item: TodoItem,
 ): Promise<{ card: Card; trashId: string }> {
   const userId = await currentUserId();
-  const { data: tRow, error: tErr } = await supabase
+  const { data: tRow, error: tErr } = await dataClient
     .from('notes_trash')
     .insert({
       user_id: userId,
@@ -564,14 +564,14 @@ export async function softDeleteTodoItem(
 
 /** Every board of the current user (client-side search index). */
 export async function listAllBoards(): Promise<Board[]> {
-  const { data, error } = await supabase.from('notes_boards').select('*');
+  const { data, error } = await dataClient.from('notes_boards').select('*');
   if (error) throw error;
   return (data as Board[]) || [];
 }
 
 /** Every card of the current user (client-side search index). */
 export async function listAllCards(): Promise<Card[]> {
-  const { data, error } = await supabase.from('notes_cards').select('*');
+  const { data, error } = await dataClient.from('notes_cards').select('*');
   if (error) throw error;
   return (data as Card[]) || [];
 }
@@ -579,7 +579,7 @@ export async function listAllCards(): Promise<Card[]> {
 // ── Arrows ─────────────────────────────────────────────────────────────
 
 export async function listArrows(boardId: string): Promise<Arrow[]> {
-  const { data, error } = await supabase
+  const { data, error } = await dataClient
     .from('notes_arrows')
     .select('*')
     .eq('board_id', boardId);
@@ -595,7 +595,7 @@ export async function createArrow(input: {
   style?: ArrowStyle;
 }): Promise<Arrow> {
   const userId = await currentUserId();
-  const { data, error } = await supabase
+  const { data, error } = await dataClient
     .from('notes_arrows')
     .insert({
       user_id: userId,
@@ -617,7 +617,7 @@ export async function updateArrow(id: string, patch: Partial<{
   label: string;
   style: ArrowStyle;
 }>): Promise<Arrow> {
-  const { data, error } = await supabase
+  const { data, error } = await dataClient
     .from('notes_arrows')
     .update(patch)
     .eq('id', id)
@@ -630,7 +630,7 @@ export async function updateArrow(id: string, patch: Partial<{
 /** Soft-delete an arrow: trash snapshot (kind 'arrow'), then delete. */
 export async function softDeleteArrow(arrow: Arrow): Promise<string> {
   const userId = await currentUserId();
-  const { data: tRow, error: tErr } = await supabase
+  const { data: tRow, error: tErr } = await dataClient
     .from('notes_trash')
     .insert({
       user_id: userId,
@@ -641,7 +641,7 @@ export async function softDeleteArrow(arrow: Arrow): Promise<string> {
     .select('id')
     .single();
   if (tErr) throw tErr;
-  const { error } = await supabase.from('notes_arrows').delete().eq('id', arrow.id);
+  const { error } = await dataClient.from('notes_arrows').delete().eq('id', arrow.id);
   if (error) throw error;
   return (tRow as { id: string }).id;
 }
@@ -649,7 +649,7 @@ export async function softDeleteArrow(arrow: Arrow): Promise<string> {
 /** Re-insert an arrow row preserving its id (history-layer only). */
 export async function insertArrowRow(arrow: Arrow): Promise<Arrow> {
   const userId = await currentUserId();
-  const { data, error } = await supabase
+  const { data, error } = await dataClient
     .from('notes_arrows')
     .insert({
       id: arrow.id,
@@ -668,14 +668,14 @@ export async function insertArrowRow(arrow: Arrow): Promise<Arrow> {
 
 /** Hard-delete an arrow row (undo of arrow-create only). */
 export async function hardDeleteArrowRow(id: string): Promise<void> {
-  const { error } = await supabase.from('notes_arrows').delete().eq('id', id);
+  const { error } = await dataClient.from('notes_arrows').delete().eq('id', id);
   if (error) throw error;
 }
 
 // ── Trash ──────────────────────────────────────────────────────────────
 
 export async function listTrash(): Promise<TrashEntry[]> {
-  const { data, error } = await supabase
+  const { data, error } = await dataClient
     .from('notes_trash')
     .select('*')
     .order('deleted_at', { ascending: false });
@@ -714,7 +714,7 @@ export async function restoreTrash(
     // and we're restoring in place.
     let parentColumn = opts?.hereBoardId ? null : c.parent_column;
     if (parentColumn && !(await fetchCard(parentColumn))) parentColumn = null;
-    const { data, error } = await supabase
+    const { data, error } = await dataClient
       .from('notes_cards')
       .insert({
         // Don't carry the old id — let the DB mint a new one to avoid clashes.
@@ -746,7 +746,7 @@ export async function restoreTrash(
     const a = entry.snapshot as Arrow;
     const [fromCard, toCard] = await Promise.all([fetchCard(a.from_card), fetchCard(a.to_card)]);
     if (fromCard && toCard) {
-      const { error } = await supabase.from('notes_arrows').insert({
+      const { error } = await dataClient.from('notes_arrows').insert({
         user_id: userId,
         board_id: a.board_id,
         from_card: a.from_card,
@@ -766,7 +766,7 @@ export async function restoreTrash(
       const root = await getOrCreateRootBoard();
       boardId = root.id;
     }
-    const { data: newCol, error: cErr } = await supabase
+    const { data: newCol, error: cErr } = await dataClient
       .from('notes_cards')
       .insert({
         user_id: userId,
@@ -787,7 +787,7 @@ export async function restoreTrash(
     );
     for (let i = 0; i < sorted.length; i++) {
       const m = sorted[i];
-      const { error } = await supabase.from('notes_cards').insert({
+      const { error } = await dataClient.from('notes_cards').insert({
         user_id: userId,
         board_id: boardId,
         type: m.type,
@@ -814,17 +814,17 @@ export async function restoreTrash(
     }
     const plan = remapBoardSnapshot(snap, parentId, () => crypto.randomUUID());
     for (const b of plan.boards) {
-      const { error } = await supabase.from('notes_boards').insert({ ...b, user_id: userId });
+      const { error } = await dataClient.from('notes_boards').insert({ ...b, user_id: userId });
       if (error) throw error;
     }
     const freeFirst = [...plan.cards].sort(
       (a, b) => Number(Boolean(a.parent_column)) - Number(Boolean(b.parent_column)),
     );
     for (const c of freeFirst) {
-      const { error } = await supabase.from('notes_cards').insert({ ...c, user_id: userId });
+      const { error } = await dataClient.from('notes_cards').insert({ ...c, user_id: userId });
       if (error) throw error;
     }
-    const { data: tileRow, error: tErr } = await supabase
+    const { data: tileRow, error: tErr } = await dataClient
       .from('notes_cards')
       .insert({
         ...plan.tile,
@@ -836,19 +836,19 @@ export async function restoreTrash(
       .single();
     if (tErr) throw tErr;
     for (const a of plan.arrows) {
-      const { error } = await supabase.from('notes_arrows').insert({ ...a, user_id: userId });
+      const { error } = await dataClient.from('notes_arrows').insert({ ...a, user_id: userId });
       if (error) throw error;
     }
     restored.push(tileRow as Card);
   }
 
-  await supabase.from('notes_trash').delete().eq('id', entry.id);
+  await dataClient.from('notes_trash').delete().eq('id', entry.id);
   return { cards: restored };
 }
 
 /** Fetch a single trash entry (history redo of a restore). */
 export async function fetchTrashEntry(id: string): Promise<TrashEntry | null> {
-  const { data, error } = await supabase
+  const { data, error } = await dataClient
     .from('notes_trash')
     .select('*')
     .eq('id', id)
@@ -872,7 +872,7 @@ export async function permanentlyDeleteTrashEntry(entry: TrashEntry): Promise<vo
     const deletable: string[] = [];
     for (const p of paths) {
       if (otherPaths.has(p)) continue;
-      const { data, error } = await supabase
+      const { data, error } = await dataClient
         .from('notes_cards')
         .select('id')
         .or(`payload->>storagePath.eq.${p},payload->>thumbPath.eq.${p}`)
@@ -886,12 +886,12 @@ export async function permanentlyDeleteTrashEntry(entry: TrashEntry): Promise<vo
       );
     }
   }
-  const { error } = await supabase.from('notes_trash').delete().eq('id', entry.id);
+  const { error } = await dataClient.from('notes_trash').delete().eq('id', entry.id);
   if (error) throw error;
 }
 
 async function fetchCard(id: string): Promise<Card | null> {
-  const { data, error } = await supabase
+  const { data, error } = await dataClient
     .from('notes_cards')
     .select('*')
     .eq('id', id)
