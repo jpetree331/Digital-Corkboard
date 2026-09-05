@@ -1,6 +1,6 @@
-import { CHUNK_BYTES, MAX_FILE_BYTES, WORKSPACE_ID } from '../shared/protocol';
-import type { Database } from './database';
-import { HttpError } from './auth';
+import { CHUNK_BYTES, MAX_FILE_BYTES, WORKSPACE_ID } from '../shared/protocol.js';
+import type { Database } from './database.js';
+import { HttpError } from './auth.js';
 export async function media(db: Database, body: any) {
   if (!body || typeof body !== 'object') throw new HttpError(400, 'Invalid attachment request.');
   const pathValid = (path: unknown): path is string => typeof path === 'string' && path.startsWith(WORKSPACE_ID + '/') && /^[a-zA-Z0-9/._-]+$/.test(path) && path.length < 250;

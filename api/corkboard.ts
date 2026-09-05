@@ -1,2 +1,2 @@
-import { createHandler } from '../server/handler';
+import { createHandler } from '../server/handler.js';
 export default { fetch: createHandler() };

@@ -1,6 +1,6 @@
-import { WORKSPACE_ID, type Query, type Result } from '../shared/protocol';
-import type { Database } from './database';
-import { HttpError } from './auth';
+import { WORKSPACE_ID, type Query, type Result } from '../shared/protocol.js';
+import type { Database } from './database.js';
+import { HttpError } from './auth.js';
 const common = ['id','user_id','created_at','updated_at'];
 const columns: Record<string, string[]> = {
   notes_boards: [...common,'parent_id','name','tile_x','tile_y','tile_color','tile_icon','is_root','starred'],

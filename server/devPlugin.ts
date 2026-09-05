@@ -1,6 +1,6 @@
 import { loadEnv, type Plugin } from 'vite';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { createHandler } from './handler';
+import { createHandler } from './handler.js';
 export function apiPlugin(): Plugin {
   const handler = createHandler();
   const middleware = async (req: IncomingMessage, res: ServerResponse, next: () => void) => {

@@ -1,5 +1,5 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import type { Database } from './database';
+import type { Database } from './database.js';
 export class HttpError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }

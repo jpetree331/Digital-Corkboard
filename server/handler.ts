@@ -1,8 +1,8 @@
-import { database, type Database } from './database';
-import { authenticated, checkMutation, cookie, failure, HttpError, json, limitLogin, matchesPassword, readJson, sessionToken } from './auth';
-import { runQuery } from './queries';
-import { media } from './media';
-import { WORKSPACE_ID } from '../shared/protocol';
+import { database, type Database } from './database.js';
+import { authenticated, checkMutation, cookie, failure, HttpError, json, limitLogin, matchesPassword, readJson, sessionToken } from './auth.js';
+import { runQuery } from './queries.js';
+import { media } from './media.js';
+import { WORKSPACE_ID } from '../shared/protocol.js';
 export function createHandler(getDb: () => Database = database) {
   return async (req: Request): Promise<Response> => {
     try {
