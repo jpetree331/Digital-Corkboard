@@ -3,7 +3,7 @@ import type { Database } from './database.js';
 export class HttpError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
-export const MIN_PASSWORD_LENGTH = 16;
+export const MIN_PASSWORD_LENGTH = 12;
 /** The active workspace password: either saved in Neon (chosen in the app) or the BOARD_PASSWORD bootstrap value. */
 export type Auth = { source: 'database' | 'environment'; secret: string; verify: (value: string) => boolean };
 export const SETTINGS_TABLE_SQL = `create table if not exists corkboard_settings (
@@ -21,7 +21,7 @@ function verifyHash(value: string, stored: string): boolean {
 }
 export function environmentAuth(): Auth {
   const value = process.env.BOARD_PASSWORD;
-  if (!value || value.length < MIN_PASSWORD_LENGTH) throw new HttpError(503, 'Set BOARD_PASSWORD to at least 16 characters in the server environment.');
+  if (!value || value.length < MIN_PASSWORD_LENGTH) throw new HttpError(503, 'Set BOARD_PASSWORD to at least 12 characters in the server environment.');
   return { source: 'environment', secret: value, verify: candidate => timingSafeEqual(digest(candidate), digest(value)) };
 }
 function databaseAuth(hash: string): Auth {

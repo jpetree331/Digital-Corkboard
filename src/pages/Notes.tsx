@@ -4957,7 +4957,7 @@ function SettingsOverlay({ onClose }: { onClose: () => void }) {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (next.length < 16) { setError('Choose a new password of at least 16 characters.'); return; }
+    if (next.length < 12) { setError('Choose a new password of at least 12 characters.'); return; }
     if (next !== confirm) { setError('The new passwords do not match.'); return; }
     setBusy(true);
     try {
@@ -4984,8 +4984,8 @@ function SettingsOverlay({ onClose }: { onClose: () => void }) {
             <input type="password" autoComplete="current-password" required value={current} onChange={(e) => setCurrent(e.target.value)} />
           </label>
           <label>
-            New password <em>(at least 16 characters)</em>
-            <input type="password" autoComplete="new-password" required minLength={16} value={next} onChange={(e) => setNext(e.target.value)} />
+            New password <em>(at least 12 characters)</em>
+            <input type="password" autoComplete="new-password" required minLength={12} value={next} onChange={(e) => setNext(e.target.value)} />
           </label>
           <label>
             Repeat new password
