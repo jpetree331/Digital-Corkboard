@@ -29,7 +29,7 @@ async function data(body: Query) {
 }
 beforeAll(async () => {
   vi.stubEnv('BOARD_PASSWORD', 'testing-a-private-workspace-password');
-  await pg.exec(schema); await pg.exec(schema);
+  await pg.query(schema); await pg.query(schema); // Same prepared-query protocol as the Vercel editor.
 }, 120_000);
 afterAll(async () => { await pg.close(); vi.unstubAllEnvs(); });
 
@@ -106,6 +106,13 @@ describe('actual Notes CRUD through the authenticated API', () => {
       expect((await notes.listCards(board.id))[0].payload).toEqual(saved.payload);
       expect(await notes.listTrash()).toEqual([]);
     } finally { vi.unstubAllGlobals(); }
+  });
+  it('reruns the single-statement setup without changing saved cards', async () => {
+    const before = await pg.query('select * from notes_cards order by id');
+    expect(before.rows.length).toBeGreaterThan(0);
+    await pg.query(schema);
+    const after = await pg.query('select * from notes_cards order by id');
+    expect(after.rows).toEqual(before.rows);
   });
   it('overrides forged workspace ownership and excludes foreign rows', async () => {
     const [board] = await data(query('notes_boards', { action: 'insert', values: { user_id: crypto.randomUUID(), name: 'Scoped' } }));

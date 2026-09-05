@@ -6,7 +6,7 @@ A private, Milanote-inspired Notes workspace with the original parchment canvas 
 
 1. Import this GitHub repository into Vercel. Use the repository root (`./`), the **Vite** framework preset, `npm run build`, output directory `dist`, and **Node.js 22.x**. `vercel.json` supplies the build/output settings and API configuration.
 2. Connect a **Neon** database using Vercel's Storage/Marketplace integration. Ensure the project has a server environment variable named **`DATABASE_URL`** containing the Neon connection string. **`POSTGRES_URL`** is also accepted. Apply it to the deployment environment you intend to use.
-3. In that database's Neon SQL Editor, run the entire [`db/schema.sql`](db/schema.sql) file once. Use a dedicated database for this app. The script creates only this app's tables and is safe to rerun.
+3. In Vercel's Neon **Query** editor (or the Neon SQL Editor), replace the editor contents with the entire [`db/schema.sql`](db/schema.sql) file and click **Run** once. Include the opening `DO $corkboard$` and final `$corkboard$;` lines. Use a dedicated database for this app. The script creates only this app's tables and is safe to rerun.
 4. Add a server environment variable named **`BOARD_PASSWORD`**: choose a long, random password of **at least 16 characters**. Share it privately with your friend. Do not put it in this repository or prefix either secret with `VITE_`.
 5. Deploy or redeploy after setting the environment variables. Open the site, unlock it, create a note, and reload to confirm persistence. Use the same production URL on another device to access the same workspace.
 
@@ -65,6 +65,8 @@ Existing notes from the earlier browser-storage version are **not automatically 
 Link cards remain editable/clickable. Automatic website metadata previews are still unavailable. Fonts and external embeds require internet access.
 
 ## Troubleshooting
+
+- **cannot insert multiple commands into a prepared statement**: you have the older multi-statement schema. Replace the entire editor contents with the latest db/schema.sql from this repository. The new version wraps setup in one PostgreSQL DO statement. Do not paste it beneath the old script.
 
 - **Set BOARD_PASSWORD…**: configure a password of at least 16 characters in the correct Vercel environment, then redeploy.
 - **Database setup is incomplete**: run `db/schema.sql` against the database used by the deployment.
