@@ -1681,3 +1681,12 @@
 .nt-settings-msg { margin: 12px 0 0; font-size: 12.5px; }
 .nt-settings-msg.error { color: var(--red); }
 .nt-settings-msg.ok { color: var(--ink-soft); }
+
+:is(.nt-card, .col-member).type-link .url-link {
+  display: block; margin-top: 4px; overflow-wrap: anywhere;
+  font-family: var(--notes-font-mono); font-size: 11px;
+  color: var(--accent-strong); text-decoration: underline; cursor: pointer;
+}
+:is(.nt-card, .col-member).type-link .link-actions { display: flex; gap: 16px; }
+:is(.nt-card, .col-member).type-link .link-error { color: var(--red); font-size: 12px; margin-top: 4px; }
+:is(.nt-card, .col-member).type-link :is(a, button, input):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }

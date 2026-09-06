@@ -111,6 +111,7 @@ import { buildBoardTree, wouldCreateCycle, type BoardNode } from '../lib/notesBo
 import { marqueeHits, normalizeRect, type Rect } from '../lib/notesMarquee';
 import { useFavicon } from '../hooks/useFavicon';
 import './Notes.css';
+import LinkBody from '../components/LinkBody';
 import { request, requestsPending } from '../lib/dataClient';
 
 const TOOLBAR_TYPES: Array<{
@@ -3053,10 +3054,6 @@ export default function Notes({ onLock }: { onLock?: () => Promise<void> }) {
         onConvertNote={() => convertNoteToDocument(m)}
         onDismissConvert={() => dismissConvertPrompt(m)}
         onDeleteTodoItem={(item) => deleteTodoLine(m, item)}
-        onOpenLink={() => {
-          const url = (m.payload as any).url;
-          if (url) window.open(url, '_blank', 'noopener');
-        }}
       />
     </ColumnMemberRow>
   );
@@ -3297,10 +3294,6 @@ export default function Notes({ onLock }: { onLock?: () => Promise<void> }) {
                 onConvertNote={() => convertNoteToDocument(card)}
                 onDismissConvert={() => dismissConvertPrompt(card)}
                 onDeleteTodoItem={(item) => deleteTodoLine(card, item)}
-                onOpenLink={() => {
-                  const url = (card.payload as any).url;
-                  if (url) window.open(url, '_blank', 'noopener');
-                }}
               />
             ))}
             {/* Arrow overlay: inside the transformed canvas so it pans/zooms
@@ -3775,7 +3768,6 @@ function CardView({
   onConvertNote,
   onDismissConvert,
   onDeleteTodoItem,
-  onOpenLink,
 }: {
   card: Card;
   selected: boolean;
@@ -3794,7 +3786,6 @@ function CardView({
   onConvertNote: () => void;
   onDismissConvert: () => void;
   onDeleteTodoItem: (item: TodoItem) => void;
-  onOpenLink: () => void;
 }) {
   const chromeless = card.type === 'heading' || card.type === 'board';
   const documentIcon = card.type === 'document' && ((card.payload as { mode?: string }).mode || 'icon') === 'icon';
@@ -3842,7 +3833,6 @@ function CardView({
           onConvertNote={onConvertNote}
           onDismissConvert={onDismissConvert}
           onDeleteTodoItem={onDeleteTodoItem}
-          onOpenLink={onOpenLink}
         />
       )}
       {showResize && (
@@ -3873,14 +3863,12 @@ function CardBody({
   onConvertNote,
   onDismissConvert,
   onDeleteTodoItem,
-  onOpenLink,
 }: {
   card: Card;
   onPatch: (patch: Partial<Card>) => void;
   onConvertNote: () => void;
   onDismissConvert: () => void;
   onDeleteTodoItem: (item: TodoItem) => void;
-  onOpenLink: () => void;
 }) {
   return (
     <>
@@ -3892,7 +3880,7 @@ function CardBody({
       )}
       {card.type === 'heading' && <HeadingBody card={card} onPatch={onPatch} />}
       {card.type === 'link' && (
-        <LinkBody card={card} onPatch={onPatch} onOpen={onOpenLink} />
+        <LinkBody card={card} onPatch={onPatch} />
       )}
       {card.type === 'document' && <DocumentTile card={card} onPatch={onPatch} />}
       {card.type === 'board' && <BoardTile card={card} />}
@@ -4330,67 +4318,6 @@ function TodoLine({
       />
       <button className="x" onClick={onDelete} title="Delete line">×</button>
     </li>
-  );
-}
-
-function LinkBody({
-  card,
-  onPatch,
-  onOpen,
-}: {
-  card: Card;
-  onPatch: (p: Partial<Card>) => void;
-  onOpen: () => void;
-}) {
-  const payload = card.payload as LinkPayload;
-  const titleRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (titleRef.current && document.activeElement !== titleRef.current) {
-      titleRef.current.textContent = payload.title || '';
-    }
-  }, [payload.title]);
-  const domain = domainOf(payload.url || '');
-  const embeddable = payload.url ? embedUrlFor(payload.url) !== null : false;
-  return (
-    <>
-      {payload.image && (
-        <div className="link-thumb">
-          <img src={payload.image} alt="" draggable={false} loading="lazy" />
-        </div>
-      )}
-      <div className="link-head">
-        {payload.favicon && (
-          <img
-            className="link-favicon"
-            src={payload.favicon}
-            alt=""
-            draggable={false}
-            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-          />
-        )}
-        <div
-          ref={titleRef}
-          className="title"
-          contentEditable
-          suppressContentEditableWarning
-          data-placeholder="Link title"
-          onInput={(e) => onPatch({ payload: { ...payload, title: (e.target as HTMLDivElement).textContent || '' } })}
-        />
-      </div>
-      {(domain || payload.siteName) && (
-        <div className="link-domain">{payload.siteName || domain}{embeddable ? ' · double-click to play' : ''}</div>
-      )}
-      <input
-        className="url-input"
-        type="url"
-        placeholder="https://…"
-        defaultValue={payload.url || ''}
-        onBlur={(e) => onPatch({ payload: { ...payload, url: e.target.value } })}
-      />
-      {payload.url && (
-        <button className="open" onClick={onOpen} title="Open in new tab">visit ↗</button>
-      )}
-    </>
   );
 }
 
