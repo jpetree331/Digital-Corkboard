@@ -493,7 +493,18 @@
 .nt-fmt-toolbar .cd { font-family: var(--notes-font-mono); font-size: 11px; }
 
 /* Todo card */
-.nt-card.type-todo { padding: 14px 14px 12px; min-width: 220px; min-height: 100px; }
+/* The canvas card has an explicit pixel height, so it lays out as a flex
+   column: the list takes the middle and scrolls if the card is ever shorter
+   than its contents, and "+ add line" stays pinned at the bottom. (Adding a
+   line also grows the card to fit — see TodoBody — so scrolling is only the
+   fallback for a card the user has deliberately shrunk.) Column members are
+   unsized, so this only applies to .nt-card. */
+.nt-card.type-todo {
+  padding: 14px 14px 12px; min-width: 220px; min-height: 100px;
+  display: flex; flex-direction: column;
+}
+.nt-card.type-todo ol { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.nt-card.type-todo .add { flex-shrink: 0; align-self: flex-start; }
 :is(.nt-card, .col-member).type-todo .todo-title {
   font-family: var(--notes-font-display);
   font-size: 13px; letter-spacing: 0.18em; text-transform: uppercase;

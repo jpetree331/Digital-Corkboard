@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -4228,6 +4229,17 @@ function TodoBody({
       );
       if (!el) return;
       el.focus();
+      // If the list is scrolling (card shorter than its contents), bring
+      // the new line into view rather than leaving the caret off-screen.
+      // Scroll the <ol> directly — scrollIntoView would also nudge the
+      // canvas wrapper, which is transform-positioned and must not scroll.
+      const ol = el.closest('ol');
+      if (ol) {
+        const top = el.offsetTop - ol.offsetTop;
+        const bottom = top + el.offsetHeight;
+        if (bottom > ol.scrollTop + ol.clientHeight) ol.scrollTop = bottom - ol.clientHeight;
+        else if (top < ol.scrollTop) ol.scrollTop = top;
+      }
       const range = document.createRange();
       range.selectNodeContents(el);
       range.collapse(false);
@@ -4244,6 +4256,29 @@ function TodoBody({
     }
   }, [payload.title]);
 
+  // Grow the card to fit when a line is added. A canvas card has a fixed
+  // pixel height (card.h); before this, lines past the bottom rendered
+  // outside the card and the only fix was dragging the resize corner
+  // taller. Runs before paint so the card never flashes overflowed. Only
+  // ever grows — a user who shrank the card on purpose keeps their size,
+  // and the list scrolls instead (see Notes.css). Column members have no
+  // fixed height, so the [data-card-id] check skips them (their nearest
+  // card element is the parent column).
+  const listRef = useRef<HTMLOListElement>(null);
+  const itemCount = items.length;
+  const onPatchRef = useRef(onPatch);
+  onPatchRef.current = onPatch;
+  useLayoutEffect(() => {
+    const ol = listRef.current;
+    if (!ol) return;
+    const host = ol.closest<HTMLElement>('[data-card-id]');
+    if (!host || host.dataset.cardId !== card.id || !host.classList.contains('nt-card')) return;
+    const overflow = ol.scrollHeight - ol.clientHeight;
+    if (overflow <= 0) return;
+    onPatchRef.current({ h: Math.ceil(host.offsetHeight + overflow) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemCount, card.id]);
+
   return (
     <>
       <div
@@ -4254,7 +4289,7 @@ function TodoBody({
         data-placeholder="To-do"
         onInput={(e) => patchTitle((e.target as HTMLDivElement).textContent || '')}
       />
-      <ol>
+      <ol ref={listRef}>
         {items.map((it, i) => (
           <TodoLine
             key={it.id}
