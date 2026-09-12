@@ -2990,6 +2990,71 @@ export default function Notes({ onLock }: { onLock?: () => Promise<void> }) {
     return { dataUrl, bbox: { w: bbox.w, h: bbox.h } };
   }
 
+  /** Build a one-page PDF of the whole board (page = content bbox). */
+  function boardPdf(out: { dataUrl: string; bbox: { w: number; h: number } }): jsPDF {
+    const pdf = new jsPDF({
+      orientation: out.bbox.w >= out.bbox.h ? 'landscape' : 'portrait',
+      unit: 'px',
+      format: [out.bbox.w, out.bbox.h],
+      hotfixes: ['px_scaling'],
+    });
+    pdf.addImage(out.dataUrl, 'PNG', 0, 0, out.bbox.w, out.bbox.h);
+    return pdf;
+  }
+
+  /** Print button: render everything on the board to a PDF and open the
+      browser's print dialog on it (where "Save as PDF" is also offered).
+      The PDF is loaded into a hidden same-origin iframe rather than a new
+      tab, so no popup blocker gets in the way after the async render, and
+      the PDF carries an auto-print action for viewers that honor it
+      (Chrome, Edge, Firefox). One page sized to the board's content; the
+      print dialog scales it to fit the paper. */
+  const printFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const printUrlRef = useRef<string | null>(null);
+  async function printBoard() {
+    setExportMenuOpen(false);
+    if (freeCards.length === 0) {
+      setStatusMsg('This board is empty — nothing to print.');
+      return;
+    }
+    try {
+      setStatusMsg('Rendering the board for print — this can take a few seconds…');
+      const bbox = contentBBox(freeCards.map((c) => ({ x: c.x, y: c.y, w: c.w, h: c.h })));
+      // 2× for crisp print unless the board is so large the raster would
+      // blow past canvas limits; then settle for 1×.
+      const scale: 1 | 2 = bbox && Math.max(bbox.w, bbox.h) * 2 <= 8000 ? 2 : 1;
+      const out = await renderBoardPng(scale);
+      if (!out) return;
+      const pdf = boardPdf(out);
+      pdf.autoPrint();
+      if (printUrlRef.current) URL.revokeObjectURL(printUrlRef.current);
+      const url = pdf.output('bloburl').toString();
+      printUrlRef.current = url;
+      let frame = printFrameRef.current;
+      if (!frame) {
+        frame = document.createElement('iframe');
+        frame.className = 'nt-print-frame';
+        frame.setAttribute('aria-hidden', 'true');
+        frame.title = 'Print';
+        document.body.appendChild(frame);
+        printFrameRef.current = frame;
+      }
+      frame.onload = () => {
+        // Belt and braces for viewers that ignore the PDF's own print action.
+        try { frame?.contentWindow?.focus(); frame?.contentWindow?.print(); } catch { /* viewer decides */ }
+      };
+      frame.src = url;
+      setStatusMsg('Print dialog opened. Choose a printer, or "Save as PDF".');
+    } catch (err) {
+      console.error(err);
+      setStatusMsg('Print failed — see the console for details.');
+    }
+  }
+  useEffect(() => () => {
+    printFrameRef.current?.remove();
+    if (printUrlRef.current) URL.revokeObjectURL(printUrlRef.current);
+  }, []);
+
   async function exportBoard(kind: 'png1' | 'png2' | 'pdf' | 'md') {
     setExportMenuOpen(false);
     const name = sanitizeFilename(boardDisplayName());
@@ -3011,14 +3076,7 @@ export default function Notes({ onLock }: { onLock?: () => Promise<void> }) {
       const out = await renderBoardPng(scale as 1 | 2);
       if (!out) return;
       if (kind === 'pdf') {
-        const pdf = new jsPDF({
-          orientation: out.bbox.w >= out.bbox.h ? 'landscape' : 'portrait',
-          unit: 'px',
-          format: [out.bbox.w, out.bbox.h],
-          hotfixes: ['px_scaling'],
-        });
-        pdf.addImage(out.dataUrl, 'PNG', 0, 0, out.bbox.w, out.bbox.h);
-        pdf.save(`${name}.pdf`);
+        boardPdf(out).save(`${name}.pdf`);
         setStatusMsg('PDF exported.');
       } else {
         triggerDownload(out.dataUrl, `${name}${scale === 2 ? '@2x' : ''}.png`);
@@ -3178,6 +3236,9 @@ export default function Notes({ onLock }: { onLock?: () => Promise<void> }) {
             title={theme === 'parchment' ? 'Switch to the Milanote skin' : 'Switch to parchment'}
           >
             {theme === 'parchment' ? 'skin: parchment' : 'skin: milanote'}
+          </button>
+          <button className="btn-quiet" onClick={printBoard} title="Print everything on this board (or save it as a PDF from the print dialog)">
+            print
           </button>
           <div className="nt-export-wrap">
             <button className="btn-quiet" onClick={() => setExportMenuOpen((v) => !v)} title="Export this board">

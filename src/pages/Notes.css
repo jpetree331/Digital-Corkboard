@@ -1557,6 +1557,14 @@
 }
 .nt-export-menu button:hover { background: var(--bg-3); }
 
+/* Hidden iframe that hosts the board PDF while the print dialog is up.
+   Must stay in layout (not display:none) or browsers refuse to print it. */
+.nt-print-frame {
+  position: fixed; right: 0; bottom: 0;
+  width: 1px; height: 1px;
+  border: 0; opacity: 0; pointer-events: none;
+}
+
 /* Status footer */
 .nt-status {
   display: flex; align-items: center; justify-content: space-between;
